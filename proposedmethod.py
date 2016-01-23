@@ -49,31 +49,47 @@ def calc_point_reliability(pos):
 
 
 def convert_resultant_vector(device_geo):
-    now_roll = math.atan2(-device_geo[0], device_geo[2])
-    now_pitch = math.atan2(device_geo[1], math.sqrt(device_geo[0] ** 2 + device_geo[2] ** 2))
+    now_roll = math.atan2(-device_geo[7], device_geo[9])
+    now_pitch = math.atan2(device_geo[8], math.sqrt(device_geo[7] ** 2 + device_geo[8] ** 2))
 
     now_gm_ver = math.fabs(
-        -math.cos(now_pitch) * math.sin(now_roll) * device_geo[0] + math.sin(now_pitch) * device_geo[1] + math.cos(
-            now_pitch) * math.cos(now_roll) * device_geo[1])
-    now_gm_whl = math.sqrt(device_geo[0] ** 2 + device_geo[1] ** 2 + device_geo[2] ** 2)
+        -math.cos(now_pitch) * math.sin(now_roll) * device_geo[4] + math.sin(now_pitch) * device_geo[5] + math.cos(
+            now_pitch) * math.cos(now_roll) * device_geo[5])
+    now_gm_whl = math.sqrt(device_geo[4] ** 2 + device_geo[5] ** 2 + device_geo[6] ** 2)
     now_gm_hor = math.sqrt(math.fabs(now_gm_whl ** 2 - now_gm_ver ** 2))
 
     return now_gm_hor, now_gm_ver, now_gm_whl
 
 
+def find_list_by_pos(pos, List):
+    list_in_pos = []
+
+    for row in List:
+        if pos.Floor == row[0] and pos.X == row[1] and pos.Y == row[2] and pos.Direction == row[3]:
+            list_in_pos.append(row)
+    return list_in_pos
+
+
+def find_list_by_BSSID(sample, FP):
+    list_where_in_bssid = []
+    for row1 in FP:
+        for row2 in sample:
+            if row1[4] == row2[4]:
+                list_where_in_bssid.append(Position(row1[0], row1[1], row1[2], row1[3], None))
+                break
+
+    return list(set(list_where_in_bssid))
+
+
 def geomagnetism_fingerprinting(correct_pos, poslist):
-    now_geo_bind = create_sql_bind_point(correct_pos)
-    now_geo_cur = curr_con.execute(u"SELECT * FROM PROCESSED_GEO WHERE " + now_geo_bind + u";")
-    now_geo = now_geo_cur.fetchall()
+    now_geo = find_list_by_pos(correct_pos, curr_GeoList)
 
     local_now_geo = convert_resultant_vector(now_geo[0])
 
     estimation = []
 
     for pos in poslist:
-        fp_geo_bind = create_sql_bind_point(pos)
-        fp_geo_cur = prev_con.execute(u"SELECT * FROM PROCESSED_GEO WHERE" + fp_geo_bind + u";")
-        fp_geo = fp_geo_cur.fetchall()
+        fp_geo = find_list_by_pos(pos, prev_GeoList)
 
         local_fp_geo = convert_resultant_vector(fp_geo[0])
 
@@ -89,7 +105,8 @@ def geomagnetism_fingerprinting(correct_pos, poslist):
     result_x = 0
     result_y = 0
     for i in range(0, _K):
-        print "(" + str(estimation[i].X) + ":" + str(estimation[i].Y) + ":" + str(estimation[i].point) + ")"
+        #print "(" + str(estimation
+        # [i].X) + ":" + str(estimation[i].Y) + ":" + str(estimation[i].point) + ")"
         result_x += estimation[i].X
         result_y += estimation[i].Y
 
@@ -97,34 +114,23 @@ def geomagnetism_fingerprinting(correct_pos, poslist):
 
 
 def wifi_fingerprinting(correct_pos):
-    now_wifi_bind = create_sql_bind_point(correct_pos)
-    print now_wifi_bind
-    now_wifi_cur = curr_con.execute(u"SELECT * FROM PROCESSED_WiFi WHERE " + now_wifi_bind + u";")
-    now_wifi = now_wifi_cur.fetchall()
+    now_wifi = find_list_by_pos(correct_pos, curr_WiFiList)
 
-    fingerprint_wifi_bind = u""
-    for row in now_wifi:
-        fingerprint_wifi_bind += "\"" + str(row[4]) + "\","
-
-    wifi_fingerprint_pos_list_cur = prev_con.execute(
-        u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, Direction FROM PROCESSED_WiFi WHERE BSSID IN(" + fingerprint_wifi_bind[
-                                                                                                            :-1] + u");")
-    wifi_fingerprint_pos_list = wifi_fingerprint_pos_list_cur.fetchall()
+    fp_wifi_poslist = find_list_by_BSSID(now_wifi, prev_WiFiList)
 
     estimation = []
-    for fp in wifi_fingerprint_pos_list:
-        fingerprint_pos_bind = create_sql_bind_point(Position(fp[0], fp[1], fp[2], fp[3], None))
+    for pos in fp_wifi_poslist:
+        fp_wifi = find_list_by_pos(Position(pos.Floor, pos.X, pos.Y, pos.Direction, None), prev_WiFiList)
         point = 0.0
         for sample in now_wifi:
-            wifi_fingerprint = prev_con.execute(u"SELECT * FROM PROCESSED_WiFi WHERE" + fingerprint_pos_bind + u";")
             # print point
-            for fingerprint_pos_wifi in wifi_fingerprint:
+            for fingerprint_pos_wifi in fp_wifi:
                 if sample[4] == fingerprint_pos_wifi[4]:
                     point += (sample[7] - fingerprint_pos_wifi[7]) ** 2
                     break
             else:
                 point += _PENALTY_POINT
-        estimation.append(Position(fp[0], fp[1], fp[2], fp[3], point))
+        estimation.append(Position(pos.Floor, pos.X, pos.Y, pos.Direction, point))
     estimation = sorted(estimation, key=lambda x: x.point)
 
     result_x = 0
@@ -140,77 +146,57 @@ def wifi_fingerprinting(correct_pos):
     return result_x / _K, result_y / _K
 
 
-def wifi_aided_magnetic_mathcing(correct_pos):
-    wifi_fingerprinting(correct_pos=correct_pos)
+def proposed_positioning(correct_pos):
+    now_wifi = find_list_by_pos(correct_pos, curr_WiFiList)
+
+    geo_estimation = []
+
+    if not len(now_wifi) == 0 :
+        for row in now_wifi:
+            simple_bssid_pos = bssid_area.get_detail(row[4])
+
+            if simple_bssid_pos is None:
+                continue
+
+            geo_estimation.append((geomagnetism_fingerprinting(correct_pos, simple_bssid_pos[1]), simple_bssid_pos[3]))
+    else:
+        geo_estimation.append((geomagnetism_fingerprinting(correct_pos, bssid_area.get_posist("None")), bssid_area.get_detail("None")[3]))
+
+    print geo_estimation
 
 
-def area_division_by_bssid():
-    return
+def configure_area_by_wifi():
+    area = AreabyBSSID()
 
+    bssid_list = []
+    for row in prev_WiFiList:
+        bssid_list.append(row[4])
+    bssid_list_uniq = list(set(bssid_list))
 
-def display_bssid_distribution(bssid):
-    fingerprint_bssid_bind = ""
+    None_wifi_poslist = []
 
-    for i in bssid:
-        fingerprint_bssid_bind += "\"" + i + "\","
+    for row1 in prev_PosList:
+        for row2 in curr_WiFiList:
+            if row1.Floor == row2[0] and row1.X == row2[1] and row1.Y == row2[2] and row1.Direction == row2[3]:
+                break
+        else:
+            None_wifi_poslist.append(row1)
 
-    pos_includes_bssid = prev_con.execute(
-        u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, Direction, avg_rssi, count FROM PROCESSED_WiFi WHERE BSSID IN(" + fingerprint_bssid_bind[
-                                                                                                                             :-1] + u");")
+    area.setarea("None", None_wifi_poslist, -1.0, len(None_wifi_poslist), -1.0)
 
-    # pos_includes_bssid = prev_con.execute(u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, Direction, avg_rssi FROM PROCESSED_WiFi;")
-
-    # pos_includes_bssid = prev_con.execute(u"select bssid, count(bssid) as cnt, max(avg_rssi) as rssi from processed_wifi group by bssid order by cnt;")
-
-    '''
-    x_range = [0,101]
-    y_range = [0, 51]
-
-    x = []
-    y = []
-    t = [0] * (x_range[1] * y_range[1])
-
-    for row in pos_includes_bssid:
-        x.append(row[1])
-        y.append(row[2])
-        t.append(float(abs(row[4]))/100.0)
-
-    df_sample = pd.DataFrame([x, y, t], index=list('xyt')).T
-
-    fig, ax = plt.subplots()
-
-    out = sns.regplot(x='x', y='y', data=df_sample, scatter=True, ax=ax, scatter_kws={'c': df_sample['t'], 'cmap': 'jet', 's': df_sample['t']})
-
-    # print df_sample
-    outpathc = out.get_children()[3]
-
-    #plt.colorbar(mappable=outpathc)
-    # sns.plt.axis("off")
-    plt.show()
-
-    '''
-
-    x = []
-    y = []
-    t = []
-    s = []
-
-    for row in pos_includes_bssid:
-        x.append(row[1])
-        y.append(row[2])
-        t.append((row[4]))
-        s.append(row[5] * 10)
-
-    cmap = plt.cm.get_cmap('Oranges')
-    sc = plt.scatter(x, y, c=t, cmap=cmap, alpha=10, s=s)
-
-    plt.colorbar(sc)
-    plt.xlim(-10, 100)
-    plt.xticks(())
-    plt.ylim(-10, 50)
-    plt.yticks(())
-
-    plt.show()
+    for bssid in bssid_list_uniq:
+        pos_cnt = 0
+        poslist = []
+        rssilist = []
+        wifi_receive_cnt = 0
+        for row in prev_WiFiList:
+            if bssid == row[4]:
+                pos_cnt += 1
+                poslist.append(Position(row[0], row[1], row[2], row[3], None))
+                rssilist.append(row[7])
+                wifi_receive_cnt += row[9]
+        area.setarea(bssid, poslist, np.var(rssilist), pos_cnt, wifi_receive_cnt)
+    return area
 
 
 if __name__ == '__main__':
@@ -226,16 +212,38 @@ if __name__ == '__main__':
 
     prev_con = sqlite3.connect(prev_db_name)
     prev_PosList = createposlist(sqlite3.connect(prev_db_name).cursor(),
-                                 u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, direction FROM PROCESSED_WiFi;")
+                                 u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, direction FROM PROCESSED_GEO;")
     prev_WiFiList = prev_con.execute(u"SELECT * FROM PROCESSED_WiFi").fetchall()
     prev_GeoList = prev_con.execute(u"SELECT * FROM posture_estimation").fetchall()
 
     curr_con = sqlite3.connect(curr_db_name)
     curr_PosList = createposlist(sqlite3.connect(curr_db_name).cursor(),
-                                 u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, direction FROM PROCESSED_WiFi;")
+                                 u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, direction FROM PROCESSED_GEO;")
     curr_WiFiList = curr_con.execute(u"SELECT * FROM PROCESSED_WiFi").fetchall()
     curr_GeoList = curr_con.execute(u"SELECT * FROM posture_estimation").fetchall()
 
+    bssid_area = configure_area_by_wifi()
+
+    estimation_error = []
+    error_cnt = 0
+    '''
     for Cpos in curr_PosList:
-    #    print wifi_fingerprinting(curr_PosList[Cpos])
-        print geomagnetism_fingerprinting(Cpos, prev_PosList)
+        wifi_estimation = wifi_fingerprinting(Cpos)
+        print (Cpos.X, Cpos.Y), wifi_estimation
+
+        if round(wifi_estimation[0] - (-1.0)) == 0:
+            error_cnt += 1
+            print "wrong "
+            continue
+
+        estimation_error.append(math.sqrt((Cpos.X - wifi_estimation[0]) ** 2 + (Cpos.Y - wifi_estimation[1]) ** 2))
+
+    error_rate = float(error_cnt) / float(len(curr_PosList))
+
+    print "error rate:" + str(error_rate)
+    print "mean error:" + str(np.mean(estimation_error))
+    print "median error:" + str(np.median(estimation_error))
+    '''
+
+    for Cpos in curr_PosList:
+        print (Cpos.X ,Cpos.Y), proposed_positioning(Cpos)

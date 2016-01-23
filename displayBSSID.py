@@ -5,13 +5,13 @@ import matplotlib as mpl
 import matplotlib.cm as cm
 import numpy as np
 
-def display_bssid_distribution(bssid):
+def display_bssid_distribution(bssid, fp_con):
     fingerprint_bssid_bind = ""
 
     for i in bssid:
         fingerprint_bssid_bind += "\"" + i + "\","
 
-    pos_includes_bssid = prev_con.execute(
+    pos_includes_bssid = fp_con.execute(
         u"SELECT DISTINCT Floor, xcoordinate, ycoordinate, Direction, avg_rssi, count FROM PROCESSED_WiFi WHERE BSSID IN(" + fingerprint_bssid_bind[
                                                                                                                              :-1] + u");")
 

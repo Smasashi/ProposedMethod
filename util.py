@@ -1,10 +1,10 @@
 class BSSIDReliability(object):
-    def __init__(self, bssid, point):
-        bssid = bssid
+    def __init__(self, BSSID, point):
+        BSSID = BSSID
         point = point
 
     def __repr__(self):
-        return '(bssid: %s -- point: %s)' % (self.bssid, self.point)
+        return '(BSSID: %s -- point: %s)' % (self.BSSID, self.point)
 
 
 class Position(object):
@@ -21,13 +21,18 @@ class Position(object):
 
 class AreabyBSSID(object):
     def __init__(self):
-        self.list = []
+        self.area_list = []
 
-    def setarea(self, bssid, reliability, poslist):
-        list.append([bssid, reliability, poslist])
+    def setarea(self, BSSID, poslist, varRSSI, posCnt, wifiCnt):
+        self.area_list.append([BSSID, poslist, varRSSI, posCnt, wifiCnt])
+        return None
 
-    def getposlist(self, bssid):
-        for row in list:
-            if bssid == row[0]:
-                return row[2], row[3]
+    def get_posist(self, BSSID):
+        for row in self.area_list:
+            if BSSID == row[0]:
+                return row[1]
 
+    def get_detail(self, BSSID):
+        for row in self.area_list:
+            if BSSID == row[0]:
+                return row
