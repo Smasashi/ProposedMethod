@@ -8,76 +8,19 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.cm as cm
 import numpy as np
+import random
 from util import *
 from displayBSSID import *
 from operator import *
+from collections import deque
 
 _PENALTY_POINT = 500.0
 _K = 3
+_queueLength = 20
 
-
-def createposlist(cursor, sql):
-    pos_search = cursor.execute(sql)
-
-    poslist = []
-
-    for row in pos_search:
-        poslist.append(Position(row[0], row[1], row[2], row[3], None))
-
-    return poslist
-
-
-def create_sql_bind_rectangle(pos, R):
-    bind = u"Floor=" + pos.floor + u" AND xcoordinate >= " + str(pos.x - R) + u" AND xcoordinate <= " + str(
-        pos.x + R) + u" AND ycoordinate >= " + str(pos.y - R) + u" AND ycoordinate <= " + str(pos.y + R)
-    return bind
-
-
-def create_sql_bind_point(pos):
-    bind = u" xcoordinate = " + str(pos.X) + u" AND ycoordinate = " + str(pos.Y) + u" AND floor = " + str(
-        pos.Floor) + u" AND Direction = \"" + str(pos.Direction) + u"\""
-    return bind
-
-
-def calc_point_reliability(pos):
-    pos_rectangle_bind = create_sql_bind_rectangle(pos, 3.0)
-
-    search_around_point = prev_con.execute(u"SELECT * FROM PROCESSED_WiFi WHERE " + pos_rectangle_bind + u";")
-
-    return None
-
-
-def convert_resultant_vector(device_geo):
-    now_roll = math.atan2(-device_geo[7], device_geo[9])
-    now_pitch = math.atan2(device_geo[8], math.sqrt(device_geo[7] ** 2 + device_geo[8] ** 2))
-
-    now_gm_ver = math.fabs(
-        -math.cos(now_pitch) * math.sin(now_roll) * device_geo[4] + math.sin(now_pitch) * device_geo[5] + math.cos(
-            now_pitch) * math.cos(now_roll) * device_geo[5])
-    now_gm_whl = math.sqrt(device_geo[4] ** 2 + device_geo[5] ** 2 + device_geo[6] ** 2)
-    now_gm_hor = math.sqrt(math.fabs(now_gm_whl ** 2 - now_gm_ver ** 2))
-
-    return now_gm_hor, now_gm_ver, now_gm_whl
-
-
-def find_list_by_pos(pos, List):
-    list_in_pos = []
-
-    for row in List:
-        if pos.Floor == row[0] and pos.X == row[1] and pos.Y == row[2] and pos.Direction == row[3]:
-            list_in_pos.append(row)
-    return list_in_pos
-
-
-def find_list_by_BSSID(sample, FP):
-    list_where_in_bssid = []
-    for row1 in FP:
-        for row2 in sample:
-            if row1[4] == row2[4]:
-                list_where_in_bssid.append(Position(row1[0], row1[1], row1[2], row1[3], None))
-                break
-
-    return list(set(list_where_in_bssid))
+estimation_profile = deque()
+geomagnetism_profile = deque()
+a = []
 
 
 def geomagnetism_fingerprinting(correct_pos, poslist):
@@ -125,23 +68,30 @@ def wifi_fingerprinting(correct_pos):
             # print point
             for fingerprint_pos_wifi in fp_wifi:
                 if sample[4] == fingerprint_pos_wifi[4]:
-                    point += (sample[7] - fingerprint_pos_wifi[7]) ** 2
+                    point += (float(sample[7]) - float(fingerprint_pos_wifi[7])) ** 2
                     break
             else:
                 point += _PENALTY_POINT
+
+        if point == 0.0:
+            point = 0.001
+
         estimation.append(Position(pos.Floor, pos.X, pos.Y, pos.Direction, point))
 
     estimation = sorted(estimation, key=lambda x: x.point)
 
     result_x = 0.0
     result_y = 0.0
+    sum_weight = 0.0
 
     if len(estimation) < _K:
         return -1.0, -1.0
 
     for i in range(0, _K):
-        result_x += estimation[i].X
-        result_y += estimation[i].Y
+
+        result_x += (1.0/float(estimation[i].point)) * estimation[i].X
+        result_y += (1.0/float(estimation[i].point)) * estimation[i].Y
+        sum_weight += (1.0/float(estimation[i].point))
 
     maxrssi = -float("inf")
 
@@ -149,42 +99,59 @@ def wifi_fingerprinting(correct_pos):
         if maxrssi < row[7]:
             maxrssi = row[7]
 
-    result = float(result_x) / float(_K), float(result_y) / float(_K)
+    result = float(result_x) / float(sum_weight), float(result_y) / float(sum_weight)
     error = math.sqrt((correct_pos.X - result[0])**2 + (correct_pos.Y - result[1])**2)
 
-    data_x.append(len(now_wifi))
-    data_y.append(error)
+    data_bssid.append([len(now_wifi), error])
+    data_rssi.append([maxrssi, error])
+
+    return float(result_x) / sum_weight, float(result_y) / sum_weight
 
 
-    return float(result_x) / float(_K), float(result_y) / float(_K)
+def wifi_aided_magnetic_matching(correct_pos):
+    wifians = wifi_fingerprinting(correct_pos)
 
+    if wifians[0] == -1.0:
+        return -1.0, -1.0
 
-def calc_wifi_dependence(now_wifi):
-    maxrssi = -float("inf")
-    numbssid = len(now_wifi)
-    for row in now_wifi:
-        if maxrssi < row[7]:
-            maxrssi = row[7]
-    if len(now_wifi) == 0:
-        return 0.0
+    now_geo = find_list_by_pos(correct_pos, curr_GeoList)
+    local_now_geo = convert_resultant_vector(now_geo[0])
 
-    dependence_bssid = (40.5/(float(len(now_wifi)) + 1.01) - 1.0)/60.0
-    dependence_rssi = (197.5/(float(maxrssi) + 100.1) - 3.0)/60.0
+    if len(estimation_profile) >= _queueLength:
+        estimation_profile.popleft()
 
-    print len(now_wifi), maxrssi
+    if len(geomagnetism_profile) >= _queueLength:
+        geomagnetism_profile.popLeft(
+        )
 
-    rssi_sos = 18822.2
-    bssid_sos = 18775.1
+    estimation_profile.append(local_now_geo)
 
-    dependence = (bssid_sos*(1.0-dependence_bssid) + (rssi_sos*(1.0-dependence_rssi)))/(bssid_sos + rssi_sos)
+    estposlist = create_list_in_circle(Position(None, wifians[0], wifians[1], None, None), prev_PosList)
 
-    if dependence > 1.0:
-        dependence = 1.0
-    elif dependence < 0.0:
-        dependence = 0.0
+    minPoint = float('inf')
+    best_match = [1.0, 1.0, 1.0]
+    result = -1.0, -1.0
 
-    print dependence
-    return dependence
+    arr1 = list(estimation_profile)
+
+    #print wifians
+    #print estposlist
+
+    for prev_pos in estposlist:
+        arr2 = list(geomagnetism_profile)
+        local_prev_geo = convert_resultant_vector(find_list_by_pos(correct_pos, prev_GeoList)[0])
+
+        arr2.append(local_prev_geo)
+        nowPoint = dtw(arr1, arr2)
+
+        if minPoint > nowPoint:
+            minPoint = nowPoint
+            result = prev_pos.X, prev_pos.Y
+            best_match = local_prev_geo
+
+    estimation_profile.append(best_match)
+
+    return result
 
 
 def proposed_positioning(correct_pos):
@@ -230,11 +197,55 @@ def proposed_positioning(correct_pos):
     geo_result = result_x /sum_reciprocal, result_y / sum_reciprocal
     wifi_result = wifi_fingerprinting(correct_pos)
 
-    wifi_dependance = calc_wifi_dependence(now_wifi)
+    wifi_dependance = calc_wifi_dependence(bssid_prm=bssid_prm, rssi_prm=rssi_prm, now_wifi=now_wifi)
 
-    result = wifi_dependance*wifi_result[0] + (1.0-wifi_dependance)*geo_result[0], wifi_dependance*wifi_result[1] + (1.0-wifi_dependance)*geo_result[1]
+    result = wifi_dependance*wifi_result[0] + (1.0-wifi_dependance)*geo_result[0], wifi_dependance*wifi_result[1] + (1.0 - wifi_dependance)*geo_result[1]
 
     return result
+
+def proposed_geomagnetic_fingerprinting(correct_pos):
+    now_wifi = find_list_by_pos(correct_pos, curr_WiFiList)
+
+    geo_estimation = []
+
+    sum_reciprocal = 0.0
+
+    result_x = 0.0
+    result_y = 0.0
+
+    if not len(now_wifi) == 0:
+        for row in now_wifi:
+            simple_bssid_pos = bssid_area.get_detail(row[4])
+
+            if simple_bssid_pos is None:
+                continue
+
+            result = geomagnetism_fingerprinting(correct_pos, simple_bssid_pos[1])
+
+            reciprocal = 1.0/float(simple_bssid_pos[3])
+
+            result_x += reciprocal*float(result[0])
+            result_y += reciprocal*float(result[1])
+
+            geo_estimation.append((result, simple_bssid_pos[3]))
+
+            sum_reciprocal += reciprocal
+    else:
+        result = geomagnetism_fingerprinting(correct_pos, bssid_area.get_posist("None"))
+
+        result_x += (1.0/float(bssid_area.get_detail("None")[3]))*float(result[0])
+        result_y += (1.0/float(bssid_area.get_detail("None")[3]))*float(result[1])
+
+        geo_estimation.append((geomagnetism_fingerprinting(correct_pos, bssid_area.get_posist("None")), bssid_area.get_detail("None")[3]))
+        sum_reciprocal += 1.0/float(bssid_area.get_detail("None")[3])
+
+    #print result_x, result_y
+    print sum_reciprocal
+
+    print geo_estimation
+    return result_x / sum_reciprocal, result_y / sum_reciprocal
+
+
 
 def configure_area_by_wifi():
     area = AreabyBSSID()
@@ -269,6 +280,37 @@ def configure_area_by_wifi():
         area.setarea(bssid, poslist, np.var(rssilist), pos_cnt, wifi_receive_cnt)
     return area
 
+
+def delete_random_bssid(percent):
+    bssidnum = bssid_area.size()
+    randomlist = random.sample(xrange(0, bssidnum), int(bssidnum*(float(percent)/100.0)))
+    delete_bssid_list = []
+
+    for idx in randomlist:
+        delete_bssid_list.append(bssid_area.get_BSSID(idx))
+
+    curr_idx_list = []
+    for dl_bssid in delete_bssid_list:
+        for curr_wifi_idx in range(len(curr_WiFiList)):
+            if curr_WiFiList[curr_wifi_idx][4] == dl_bssid:
+                curr_idx_list.append(curr_wifi_idx)
+
+    curr_idx_inverse_list = sorted(curr_idx_list, reverse=True)
+
+    for i in curr_idx_inverse_list:
+        del curr_WiFiList[i]
+
+    prev_idx_list = []
+    for dl_bssid in delete_bssid_list:
+        for prev_wifi_idx in range(len(prev_WiFiList)):
+            if prev_WiFiList[prev_wifi_idx][4] == dl_bssid:
+                prev_idx_list.append(prev_wifi_idx)
+
+    prev_idx_inverse_list = sorted(prev_idx_list, reverse=True)
+    for i in prev_idx_inverse_list:
+        del prev_WiFiList[i]
+
+
 if __name__ == '__main__':
     if len(sys.argv) != 3:
         print '#error '
@@ -293,6 +335,11 @@ if __name__ == '__main__':
     curr_GeoList = curr_con.execute(u"SELECT * FROM posture_estimation").fetchall()
 
     bssid_area = configure_area_by_wifi()
+
+    for i in range(30):
+        print prev_WiFiList[i]
+        print curr_WiFiList[i]
+
     '''
     estimation_error = []
     error_cnt = 0
@@ -314,10 +361,30 @@ if __name__ == '__main__':
     print "median error:" + str(np.median(estimation_error))
     '''
 
-    data_x = []
-    data_y = []
+    data_bssid = []
+    data_rssi = []
 
-    # for Cpos in curr_PosList:
-    #    print (Cpos.X ,Cpos.Y), proposed_positioning(Cpos)
-    #evaluation(wifi_fingerprinting, u"Wi-Fi Fingerprinting", curr_PosList)
-    evaluation(proposed_positioning, "proposed positioning method", curr_PosList)
+    bssid_prm = [41.5, 1.01, -1.0]
+    rssi_prm = [235.5, 100.1, -5.0]
+
+    # delete_random_bssid(0)
+
+    #for Cpos in curr_PosList:
+    #    wifi_fingerprinting(Cpos)
+
+    #bssid_prm = fit_bssid(data_bssid)
+    #rssi_prm = fit_rssi(data_rssi)
+
+    #bssid_prm = [39.5, 1.01, -1.0]
+    #rssi_prm = [199.5]
+
+    #print bssid_area.size()
+
+    print bssid_prm
+    print rssi_prm
+
+
+    #evaluation([proposed_geomagnetic_fingerprinting], [u"proposed geomagnetic fingerprinting"], curr_PosList)
+
+    evaluation([wifi_fingerprinting, proposed_geomagnetic_fingerprinting, wifi_aided_magnetic_matching, proposed_positioning], ["wifi fingerprinting","proposed geomagnetic fingerprinting" ,"wifi aided magnetic matching", "proposed positioning method"], curr_PosList)
+    #evaluation([wifi_fingerprinting, proposed_geomagnetic_fingerprinting, proposed_positioning], ["wifi fingerprinting","proposed geomagnetic fingerprinting" , "proposed positioning method"], curr_PosList)

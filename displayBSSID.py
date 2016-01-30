@@ -71,45 +71,56 @@ def display_bssid_distribution(bssid, fp_con):
 
     plt.show()
 
+
 def evaluation(method, method_name, curr_PosList):
-    estimation_error = []
-    error_cnt = 0
-    for Cpos in curr_PosList:
-        wifi_estimation = method(Cpos)
-        print (Cpos.X, Cpos.Y), wifi_estimation
+    print len(method)
 
-        if round(wifi_estimation[0] - (-1.0)) == 0:
-            error_cnt += 1
-            print "wrong "
-            continue
-
-        estimation_error.append(math.sqrt((Cpos.X - wifi_estimation[0]) ** 2 + (Cpos.Y - wifi_estimation[1]) ** 2))
-
-    error_rate = float(error_cnt) / float(len(curr_PosList))
-
-    print "error rate:" + str(error_rate)
-    print "mean error:" + str(np.mean(estimation_error))
-    print "median error:" + str(np.median(estimation_error))
-
-    mpl.rcParams['font.family'] = 'Osaka'
-
-    data = [estimation_error]
-    fig = plt.figure()
-
-    plt.boxplot(data, sym='', whis=[5,95])
-    plt.grid()
-    plt.xlabel(method_name)
+    f, ax = plt.subplots(1,len(method), sharey=True)
+    f.set_label(U"測位誤差[m]")
     plt.ylabel(u"測位誤差[m]")
 
-    plt.ylim([0, 30])
+    for i in xrange(0, len(method)):
+        estimation_error = []
+        error_cnt = 0
+        for Cpos in curr_PosList:
+            wifi_estimation = method[i](Cpos)
+            print (Cpos.X, Cpos.Y), wifi_estimation
+
+            if round(wifi_estimation[0] - (-1.0)) == 0:
+                error_cnt += 1
+                print "wrong "
+                continue
+
+            estimation_error.append(math.sqrt((Cpos.X - wifi_estimation[0]) ** 2 + (Cpos.Y - wifi_estimation[1]) ** 2))
+
+        error_rate = float(error_cnt) / float(len(curr_PosList))
+
+        print "error rate:" + str(error_rate)
+        print "mean error:" + str(np.mean(estimation_error))
+        print "median error:" + str(np.median(estimation_error))
+
+        mpl.rcParams['font.family'] = 'Osaka'
+
+        data = [estimation_error]
+
+        ax[i].boxplot(data, sym='', whis=[5,95], showmeans=True)
+        ax[i].grid()
+        ax[i].set_xlabel(method_name[i])
+
+        textstr = 'miss match rate : %.2f' % error_rate
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        ax[i].text(0.05, 0.95, textstr, fontsize=14, transform=ax[i].transAxes, verticalalignment='top', bbox=props)
+
+
+
+        # print data
+
+        '''
+        plt.scatter(data_x, data_y)
+        plt.xlabel(u"サンプルで得られたbssidの個数[個]")
+        plt.ylabel(u"測位誤差[m]")
+        '''
+    # plt.ylim([0, 30])
     plt.minorticks_on()
-
-    print data
-
-    '''
-    plt.scatter(data_x, data_y)
-    plt.xlabel(u"サンプルで得られたbssidの個数[個]")
-    plt.ylabel(u"測位誤差[m]")
-    '''
 
     plt.show()

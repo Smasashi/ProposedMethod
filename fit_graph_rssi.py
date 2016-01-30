@@ -97,9 +97,3 @@ ax1.set_ylim(0, 60)
 ax2=ax1.twinx()
 ax2.plot(x,y, label = 'close')
 ax2.set_ylim(0, 60)
-
-plt.rcParams['font.size'] = 8
-plt.ylabel('turnover')
-plt.legend()
-plt.savefig('dentu_stock.png')
-plt.show()
