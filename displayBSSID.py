@@ -3,9 +3,11 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.cm as cm
 import numpy as np
 import math
+from util import *
 
 def display_bssid_distribution(bssid, fp_con):
     fingerprint_bssid_bind = ""
@@ -72,55 +74,70 @@ def display_bssid_distribution(bssid, fp_con):
     plt.show()
 
 
-def evaluation(method, method_name, curr_PosList):
-    print len(method)
+def evaluation(method, method_name, delete_list ,curr_PosList, prev_PosList, fig_name, c_WiFiList, p_WiFiList):
 
-    f, ax = plt.subplots(1,len(method), sharey=True)
-    f.set_label(U"測位誤差[m]")
-    plt.ylabel(u"測位誤差[m]")
+    f, ax = plt.subplots(len(delete_list), len(method), sharey=True, sharex=True)
+    # f.set_label(u"[m]")
 
-    for i in xrange(0, len(method)):
-        estimation_error = []
-        error_cnt = 0
-        for Cpos in curr_PosList:
-            wifi_estimation = method[i](Cpos)
-            print (Cpos.X, Cpos.Y), wifi_estimation
+    bssid_area = configure_area_by_wifi(prev_WiFiList=p_WiFiList, prev_PosList=prev_PosList)
 
-            if round(wifi_estimation[0] - (-1.0)) == 0:
-                error_cnt += 1
-                print "wrong "
-                continue
+    for i in xrange(0, len(delete_list)):
 
-            estimation_error.append(math.sqrt((Cpos.X - wifi_estimation[0]) ** 2 + (Cpos.Y - wifi_estimation[1]) ** 2))
+        prev_WiFiList = delete_bssid_list(delete_list[i], WiFiList=p_WiFiList, bssid_area=bssid_area)
+        curr_WiFiList = delete_bssid_list(delete_list[i], WiFiList=c_WiFiList, bssid_area=bssid_area)
 
-        error_rate = float(error_cnt) / float(len(curr_PosList))
+        for j in xrange(0, len(method)):
+            estimation_error = []
+            error_cnt = 0
+            for Cpos in curr_PosList:
+                estimation = method[j](correct_pos=Cpos, curr_WiFiList=curr_WiFiList, prev_WiFiList=prev_WiFiList, bssid_area=bssid_area)
+                print str(Cpos.X) + ',' + str(Cpos.Y) + ',' + str(estimation[0]) + ',' + str(estimation[1])
 
-        print "error rate:" + str(error_rate)
-        print "mean error:" + str(np.mean(estimation_error))
-        print "median error:" + str(np.median(estimation_error))
+                if round(estimation[0] - (-1.0)) == 0:
+                    error_cnt += 1
+                    # print "wrong "
+                    continue
 
-        mpl.rcParams['font.family'] = 'Osaka'
+                estimation_error.append(math.sqrt((Cpos.X - estimation[0]) ** 2 + (Cpos.Y - estimation[1]) ** 2))
 
-        data = [estimation_error]
+            error_rate = float(error_cnt) / float(len(curr_PosList))
 
-        ax[i].boxplot(data, sym='', whis=[5,95], showmeans=True)
-        ax[i].grid()
-        ax[i].set_xlabel(method_name[i])
+            print "error rate, " + str(error_rate)
+            print "mean error, " + str(np.mean(estimation_error))
+            print "median error, " + str(np.median(estimation_error))
 
-        textstr = 'miss match rate : %.2f' % error_rate
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        ax[i].text(0.05, 0.95, textstr, fontsize=14, transform=ax[i].transAxes, verticalalignment='top', bbox=props)
+            mpl.rcParams['font.family'] = 'Osaka'
+
+            data = [estimation_error]
+
+            ax[i, j].boxplot(data, sym='', whis=[5, 95], showmeans=True)
+            ax[i, j].grid()
+            ax[i, j].set_xlabel(method_name[j])
+
+            if j == 0:
+                ax[i,j].set_yticklabels(["bssid " + str(25*i) + "% cut"])
+                ax[i, j].set_ylabel(u"positioning error[m]")
+
+            textstr = 'miss match rate : %.2f' % error_rate
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+            ax[i, j].text(0.05, 0.95, textstr, fontsize=13, transform=ax[i, j].transAxes, verticalalignment='top', bbox=props)
+            ax[i, j].tick_params(labelbottom='off')
 
 
 
-        # print data
+            # print data
 
         '''
         plt.scatter(data_x, data_y)
         plt.xlabel(u"サンプルで得られたbssidの個数[個]")
         plt.ylabel(u"測位誤差[m]")
         '''
-    # plt.ylim([0, 30])
+
+    plt.ylim([0, 40])
+
     plt.minorticks_on()
 
+    f.set_size_inches(13, 16)
+
+    plt.savefig(fig_name)
     plt.show()

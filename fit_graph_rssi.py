@@ -2,6 +2,7 @@ import csv
 import numpy as np
 import sys
 import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import pylab as pl
 import scipy

@@ -1,5 +1,6 @@
 from math import *
 import numpy as np
+import copy
 
 
 def func(x, a, b, c):
@@ -15,7 +16,7 @@ class Position(object):
         self.point = point
 
     def __repr__(self):
-        return '(Point :%s  x :%s  y :%s)' % (self.point, self.X, self.Y)
+        return '(Point :%s  x :%s  y :%s direction :%s)' % (self.point, self.X, self.Y, self.Direction)
 
 
 class AreabyBSSID(object):
@@ -60,7 +61,7 @@ def calc_wifi_dependence(bssid_prm, rssi_prm, now_wifi):
     dependence_bssid = (bssid_prm[0] / (float(len(now_wifi)) + bssid_prm[1]) + bssid_prm[2])/40.0
     dependence_rssi = (rssi_prm[0] / (float(maxrssi) + rssi_prm[1]) + rssi_prm[2])/40.0
 
-    print len(now_wifi), maxrssi
+    # print len(now_wifi), maxrssi
 
     rssi_sos = 18822.2
     bssid_sos = 18775.1
@@ -72,7 +73,7 @@ def calc_wifi_dependence(bssid_prm, rssi_prm, now_wifi):
     elif dependence < 0.0:
         dependence = 0.0
 
-    print dependence
+    # print dependence
     return dependence
 
 
@@ -99,7 +100,7 @@ def create_sql_bind_point(pos):
     return bind
 
 
-def convert_resultant_vector(device_geo):
+def convert_resultant_vector(device_geo, returnraw=True):
     roll = atan2(-device_geo[7], device_geo[9])
     pitch = atan2(device_geo[8], sqrt(device_geo[7] ** 2 + device_geo[9] ** 2))
 
@@ -109,16 +110,40 @@ def convert_resultant_vector(device_geo):
     now_gm_whl = sqrt(device_geo[4] ** 2 + device_geo[5] ** 2 + device_geo[6] ** 2)
     now_gm_hor = sqrt(now_gm_whl ** 2 - now_gm_ver ** 2)
 
-    return now_gm_hor, now_gm_ver, now_gm_whl
+    if returnraw:
+        return device_geo[4], device_geo[5], device_geo[6]
+    else:
+        return now_gm_hor, now_gm_ver, now_gm_whl
 
 
-def find_list_by_pos(pos, List):
+def find_list_by_pos(pos, List, bind_dir):
     list_in_pos = []
 
     for row in List:
-        if pos.Floor == row[0] and pos.X == row[1] and pos.Y == row[2] and pos.Direction == row[3]:
-            list_in_pos.append(row)
+        if bind_dir:
+            if pos.Floor == row[0] and pos.X == row[1] and pos.Y == row[2] and pos.Direction == row[3]:
+                list_in_pos.append(row)
+        else:
+            if pos.Floor == row[0] and pos.X == row[1] and pos.Y == row[2]:
+                list_in_pos.append(row)
     return list_in_pos
+
+
+def rotate_direction(dir, deg):
+    list = ["UP", "RIGHT", "DOWN", "LEFT", "UP", "RIGHT", "DOWN", "LEFT"]
+    if dir == "UP":
+        dir_num = 0
+    elif dir == "RIGHT":
+        dir_num = 1
+    elif dir == "DOWN":
+        dir_num = 2
+    elif dir == "LEFT":
+        dir_num = 3
+    else:
+        print "error"
+        sys.exit()
+
+    return list[dir_num + deg/90]
 
 
 def find_list_by_BSSID(sample, FP):
@@ -243,3 +268,59 @@ def fit_bssid(data):
                     #print "run"
                     #print first_bias, x_bias, y_bias
     return min_first_bias, min_x_bias, min_y_bias
+
+
+def configure_area_by_wifi(prev_WiFiList, prev_PosList):
+    area = AreabyBSSID()
+
+    bssid_list = []
+    for row in prev_WiFiList:
+        bssid_list.append(row[4])
+    bssid_list_uniq = list(set(bssid_list))
+
+    None_wifi_poslist = []
+
+    for row1 in prev_PosList:
+        for row2 in prev_WiFiList:
+            if row1.Floor == row2[0] and row1.X == row2[1] and row1.Y == row2[2] and row1.Direction == row2[3]:
+                break
+        else:
+            None_wifi_poslist.append(row1)
+
+    area.setarea("None", None_wifi_poslist, -1.0, len(None_wifi_poslist), -1.0)
+
+    for bssid in bssid_list_uniq:
+        pos_cnt = 0
+        poslist = []
+        rssilist = []
+        wifi_receive_cnt = 0
+        for row in prev_WiFiList:
+            if bssid == row[4]:
+                pos_cnt += 1
+                poslist.append(Position(row[0], row[1], row[2], row[3], None))
+                rssilist.append(row[7])
+                wifi_receive_cnt += row[9]
+        area.setarea(bssid, poslist, np.var(rssilist), pos_cnt, wifi_receive_cnt)
+    return area
+
+
+def delete_bssid_list(delete_list_idx, WiFiList, bssid_area):
+    delete_bssid_list = []
+
+    tmp_WiFiList = copy.copy(WiFiList)
+
+    for idx in delete_list_idx:
+        delete_bssid_list.append(bssid_area.get_BSSID(idx))
+
+    idx_list = []
+    for dl_bssid in delete_bssid_list:
+        for wifi_idx in range(len(tmp_WiFiList)):
+            if tmp_WiFiList[wifi_idx][4] == dl_bssid:
+                idx_list.append(wifi_idx)
+
+    curr_idx_inverse_list = sorted(idx_list, reverse=True)
+
+    for i in curr_idx_inverse_list:
+        del tmp_WiFiList[i]
+
+    return tmp_WiFiList
