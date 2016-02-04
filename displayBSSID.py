@@ -74,10 +74,17 @@ def display_bssid_distribution(bssid, fp_con):
     plt.show()
 
 
-def evaluation(method, method_name, delete_list ,curr_PosList, prev_PosList, fig_name, c_WiFiList, p_WiFiList):
+def evaluation_mmr(method, method_name, delete_list ,curr_PosList, prev_PosList, fig_name, c_WiFiList, p_WiFiList):
 
-    f, ax = plt.subplots(len(delete_list), len(method), sharey=True, sharex=True)
-    # f.set_label(u"[m]")
+    x = []
+    for i in range(len(delete_list)):
+        x.append(i*10)
+
+    y = []
+    for i in range(len(method)):
+        y.append([])
+
+    print delete_list
 
     bssid_area = configure_area_by_wifi(prev_WiFiList=p_WiFiList, prev_PosList=prev_PosList)
 
@@ -91,7 +98,65 @@ def evaluation(method, method_name, delete_list ,curr_PosList, prev_PosList, fig
             error_cnt = 0
             for Cpos in curr_PosList:
                 estimation = method[j](correct_pos=Cpos, curr_WiFiList=curr_WiFiList, prev_WiFiList=prev_WiFiList, bssid_area=bssid_area)
-                print str(Cpos.X) + ',' + str(Cpos.Y) + ',' + str(estimation[0]) + ',' + str(estimation[1])
+                # print str(Cpos.X) + ',' + str(Cpos.Y) + ',' + str(estimation[0]) + ',' + str(estimation[1])
+
+                if round(estimation[0] - (-1.0)) == 0:
+                    error_cnt += 1
+                    # print "wrong "
+                    continue
+
+                # estimation_error.append(math.sqrt((Cpos.X - estimation[0]) ** 2 + (Cpos.Y - estimation[1]) ** 2))
+
+            error_rate = float(error_cnt) / float(len(curr_PosList))
+
+            print "error rate, " + str(error_rate)
+            # print "mean error, " + str(np.mean(estimation_error))
+            # print "median error, " + str(np.median(estimation_error))
+
+            mpl.rcParams['font.family'] = 'Osaka'
+
+            y[j].append(error_rate)
+
+        '''
+        plt.scatter(data_x, data_y)
+        plt.xlabel(u"サンプルで得られたbssidの個数[個]")
+        plt.ylabel(u"測位誤差[m]")
+        '''
+
+    for i in range(len(y) - 1):
+        plt.plot(x, y[i], '-s')
+
+    m_name = [method_name[0], method_name[1], method_name[2] + u"\n & " + method_name[3]]
+
+    plt.legend(m_name, loc='lower right')
+    plt.minorticks_on()
+    plt.xlabel(u"BSSID削減率[%]")
+    plt.ylabel(u"miss match rate[%]")
+
+    plt.savefig(fig_name, transparent=True)
+
+
+
+def evaluation(method, method_name, delete_list ,curr_PosList, prev_PosList, fig_name, c_WiFiList, p_WiFiList):
+
+    f, ax = plt.subplots(len(delete_list), len(method), sharey=True, sharex=True)
+    # f.set_label(u"[m]")
+
+    print delete_list
+
+    bssid_area = configure_area_by_wifi(prev_WiFiList=p_WiFiList, prev_PosList=prev_PosList)
+
+    for i in xrange(0, len(delete_list)):
+
+        prev_WiFiList = delete_bssid_list(delete_list[i], WiFiList=p_WiFiList, bssid_area=bssid_area)
+        curr_WiFiList = delete_bssid_list(delete_list[i], WiFiList=c_WiFiList, bssid_area=bssid_area)
+
+        for j in xrange(0, len(method)):
+            estimation_error = []
+            error_cnt = 0
+            for Cpos in curr_PosList:
+                estimation = method[j](correct_pos=Cpos, curr_WiFiList=curr_WiFiList, prev_WiFiList=prev_WiFiList, bssid_area=bssid_area)
+                # print str(Cpos.X) + ',' + str(Cpos.Y) + ',' + str(estimation[0]) + ',' + str(estimation[1])
 
                 if round(estimation[0] - (-1.0)) == 0:
                     error_cnt += 1
@@ -112,15 +177,15 @@ def evaluation(method, method_name, delete_list ,curr_PosList, prev_PosList, fig
 
             ax[i, j].boxplot(data, sym='', whis=[5, 95], showmeans=True)
             ax[i, j].grid()
-            ax[i, j].set_xlabel(method_name[j])
+            ax[i, j].set_xlabel(method_name[j], fontsize=17)
 
             if j == 0:
-                ax[i,j].set_yticklabels(["bssid " + str(25*i) + "% cut"])
-                ax[i, j].set_ylabel(u"positioning error[m]")
+                #ax[i,j].set_yticklabels(["bssid " + str(25*i) + "% cut"])
+                ax[i, j].set_ylabel(u"bssid" + str(i*25) + u"% cut\npositioning error[m]", fontsize=17)
 
             textstr = 'miss match rate : %.2f' % error_rate
             props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-            ax[i, j].text(0.05, 0.95, textstr, fontsize=13, transform=ax[i, j].transAxes, verticalalignment='top', bbox=props)
+            ax[i, j].text(0.05, 1.00, textstr, fontsize=17, transform=ax[i, j].transAxes, verticalalignment='top', bbox=props)
             ax[i, j].tick_params(labelbottom='off')
 
 
@@ -133,11 +198,10 @@ def evaluation(method, method_name, delete_list ,curr_PosList, prev_PosList, fig
         plt.ylabel(u"測位誤差[m]")
         '''
 
-    plt.ylim([0, 40])
+    plt.ylim([0, 45])
 
     plt.minorticks_on()
 
     f.set_size_inches(13, 16)
 
-    plt.savefig(fig_name)
-    plt.show()
+    plt.savefig(fig_name, transparent=True)
