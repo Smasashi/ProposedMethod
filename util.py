@@ -100,7 +100,7 @@ def create_sql_bind_point(pos):
     return bind
 
 
-def convert_resultant_vector(device_geo, returnraw=True):
+def convert_resultant_vector(device_geo, returnraw):
     roll = atan2(-device_geo[7], device_geo[9])
     pitch = atan2(device_geo[8], sqrt(device_geo[7] ** 2 + device_geo[9] ** 2))
 
@@ -276,7 +276,10 @@ def configure_area_by_wifi(prev_WiFiList, prev_PosList):
     bssid_list = []
     for row in prev_WiFiList:
         bssid_list.append(row[4])
+
     bssid_list_uniq = list(set(bssid_list))
+
+    print len(bssid_list_uniq)
 
     None_wifi_poslist = []
 
@@ -324,3 +327,21 @@ def delete_bssid_list(delete_list_idx, WiFiList, bssid_area):
         del tmp_WiFiList[i]
 
     return tmp_WiFiList
+
+
+def insert_other_direction(p_GeoList):
+
+    prev_GeoList_forraw = copy.copy(p_GeoList)
+
+    other_data = []
+    for row in prev_GeoList_forraw:
+        for dir_num in [90, 180, 270]:
+            rotate_deg = (pi / 2.0) * float(dir_num / 90)
+            rotate_geo = [row[4] * cos(rotate_deg) - row[5] * sin(rotate_deg),
+                          row[4] * sin(rotate_deg) + row[5] * cos(rotate_deg), row[6]]
+            other_data.append(
+                [row[0], row[1], row[2], rotate_direction(row[3], dir_num), rotate_geo[0], rotate_geo[1], rotate_geo[2],
+                 row[7], row[8], row[9]])
+    prev_GeoList_forraw.extend(other_data)
+
+    return prev_GeoList_forraw

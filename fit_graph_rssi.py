@@ -1,3 +1,4 @@
+# coding=utf-8
 import csv
 import numpy as np
 import sys
@@ -30,7 +31,7 @@ xdata = np.array(data_x)
 ydata = np.array(data_y)
 parameter_initial = np.array([0.0, 0.0, 0.0])
 
-x = pl.linspace(-100, -40, 100)
+x = np.linspace(-100, -40, 100)
 # x =  pl.linspace(0, 50, 500)
 y = []
 '''
@@ -90,11 +91,31 @@ for i in range(0, len(x)):
 #print func(min(data_x), min_first_bias, min_x_bias, min_y_bias)
 #print func(max(data_x), min_first_bias, min_x_bias, min_y_bias)
 
+#mpl.rcParams['font.family'] = 'Osaka'
+
+s=data.index
+
+plt.figure(figsize=(10, 7))
 
 fig, ax1 = plt.subplots()
-s=data.index
-ax1.scatter(data_x, data_y)
+
+ax1.scatter(data_x, data_y, s=50)
+ax1.set_xlabel(u"観測最大RSSI[dB]")
+ax1.set_ylabel(u"測位誤差[m]")
 ax1.set_ylim(0, 60)
-ax2=ax1.twinx()
-ax2.plot(x,y, label = 'close')
+ax1.set_xlim(-100, -40)
+
+ax1.plot(x, y, color='r', label=u"観測最大RSSIに関する誤差特性")
+
+'''
+ax2 = ax1.twinx()
+ax2.set_ylabel(u"観測最大RSSIに関する誤差特性のパラメータ値", color='r')
 ax2.set_ylim(0, 60)
+ax2.set_xlim(-100, -40)
+'''
+
+
+plt.legend()
+
+plt.rcParams['font.size'] = 15
+plt.savefig('rssi_scatter.eps', transparent=True)
